@@ -4,6 +4,7 @@ Update secretsdump.py
 New flags (for LOCAL, VSS and DRSUAPI methods get credentials from ntds.dit):
 - `-sid` - Replace RID to SID
 - `-account-type` - Display account type (User, Machine, Trust)
+
 Also, values `-status` or `-account-type` flags will be added for every history record if it's used.
 
 ```bash
