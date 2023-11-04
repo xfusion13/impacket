@@ -5,7 +5,7 @@ New flags (for LOCAL, VSS and DRSUAPI methods get credentials from ntds.dit):
 - `-sid` - Replace RID to SID
 - `-account-type` - Display account type (User, Machine, Trust)
 
-Also, values `-status` or `-account-type` flags will be added for every history record if it's used.
+Also, values `-user-status` or `-account-type` flags will be added for every history record if it's used.
 
 ```bash
 secretsdump.py $creds -history -user-status -pwd-last-set -just-dc-ntlm -sid -account-type -outputfile essos.local
