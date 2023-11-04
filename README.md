@@ -6,7 +6,7 @@ New flags (for LOCAL, VSS and DRSUAPI methods get credentials from ntds.dit):
 - `-account-type` - Display account type (User, Machine, Trust)
 
 ```
-secretsdump.py essos.local/'daenerys.targaryen':'BurnThemAll!'@meereen.essos.local -history -user-status -pwd-last-set -just-dc-ntlm -sid -account-type -outputfile essos.local
+secretsdump.py $creds -history -user-status -pwd-last-set -just-dc-ntlm -sid -account-type -outputfile essos.local
 ```
 ```
 Output >
