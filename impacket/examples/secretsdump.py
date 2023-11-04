@@ -1913,6 +1913,7 @@ class NTDSHashes:
     ATTRTYP_TO_ATTID = {
         'userPrincipalName': '1.2.840.113556.1.4.656',
         'sAMAccountName': '1.2.840.113556.1.4.221',
+        'sAMAccountType': '1.2.840.113556.1.4.302',
         'unicodePwd': '1.2.840.113556.1.4.90',
         'dBCSPwd': '1.2.840.113556.1.4.55',
         'ntPwdHistory': '1.2.840.113556.1.4.94',
@@ -1990,7 +1991,7 @@ class NTDSHashes:
 
     def __init__(self, ntdsFile, bootKey, isRemote=False, history=False, noLMHash=True, remoteOps=None,
                  useVSSMethod=False, justNTLM=False, pwdLastSet=False, resumeSession=None, outputFileName=None,
-                 justUser=None, ldapFilter=None, printUserStatus=False,
+                 justUser=None, ldapFilter=None, printUserStatus=False, printSID=False, printAccountType=False,
                  perSecretCallback = lambda secretType, secret : _print_helper(secret),
                  resumeSessionMgr=ResumeSessionMgrInFile):
         self.__bootKey = bootKey
@@ -2001,6 +2002,8 @@ class NTDSHashes:
         self.__remoteOps = remoteOps
         self.__pwdLastSet = pwdLastSet
         self.__printUserStatus = printUserStatus
+        self.__printSID = printSID
+        self.__printAccountType = printAccountType
         if self.__NTDS is not None:
             self.__ESEDB = ESENT_DB(ntdsFile, isRemote = isRemote)
             self.__cursor = self.__ESEDB.openTable('datatable')
@@ -2257,8 +2260,10 @@ class NTDSHashes:
         if self.__useVSSMethod is True:
             LOG.debug('Decrypting hash for user: %s' % record[self.NAME_TO_INTERNAL['name']])
 
-            sid = SAMR_RPC_SID(unhexlify(record[self.NAME_TO_INTERNAL['objectSid']]))
-            rid = sid.formatCanonical().split('-')[-1]
+            sid = SAMR_RPC_SID(unhexlify(record[self.NAME_TO_INTERNAL['objectSid']])).formatCanonical()
+            rid = sid.split('-')[-1]
+            ident = sid if self.__printSID == True else rid
+            
 
             if record[self.NAME_TO_INTERNAL['dBCSPwd']] is not None:
                 encryptedLMHash = self.CRYPTED_HASH(unhexlify(record[self.NAME_TO_INTERNAL['dBCSPwd']]))
@@ -2296,27 +2301,36 @@ class NTDSHashes:
             else:
                 userName = '%s' % record[self.NAME_TO_INTERNAL['sAMAccountName']]
 
+            userAccountStatus = ''
             if self.__printUserStatus is True:
                 # Enabled / disabled users
                 if record[self.NAME_TO_INTERNAL['userAccountControl']] is not None:
                     if '{0:08b}'.format(record[self.NAME_TO_INTERNAL['userAccountControl']])[-2:-1] == '1':
-                        userAccountStatus = 'Disabled'
+                        userAccountStatus = "(status=Disabled)"
                     elif '{0:08b}'.format(record[self.NAME_TO_INTERNAL['userAccountControl']])[-2:-1] == '0':
-                        userAccountStatus = 'Enabled'
+                        userAccountStatus = "(status=Enabled)"
                 else:
-                    userAccountStatus = 'N/A'
-
-            if record[self.NAME_TO_INTERNAL['pwdLastSet']] is not None:
-                pwdLastSet = self.__fileTimeToDateTime(record[self.NAME_TO_INTERNAL['pwdLastSet']])
-            else:
-                pwdLastSet = 'N/A'
-
-            answer = "%s:%s:%s:%s:::" % (userName, rid, hexlify(LMHash).decode('utf-8'), hexlify(NTHash).decode('utf-8'))
+                    userAccountStatus = "(status=N/A)"
+            
+            pwdLastSet = ''
             if self.__pwdLastSet is True:
-                answer = "%s (pwdLastSet=%s)" % (answer, pwdLastSet)
-            if self.__printUserStatus is True:
-                answer = "%s (status=%s)" % (answer, userAccountStatus)
+                if record[self.NAME_TO_INTERNAL['pwdLastSet']] is not None:
+                    pwdLastSet = "(pwdLastSet=%s)" % (self.__fileTimeToDateTime(record[self.NAME_TO_INTERNAL['pwdLastSet']]))
+                else:
+                    pwdLastSet = "(pwdLastSet=N/A)"
 
+            accountType =  ''
+            if self.__printAccountType is True:
+                if record[self.NAME_TO_INTERNAL['sAMAccountType']] == self.SAM_NORMAL_USER_ACCOUNT:
+                    accountType = "(accountType=User)"
+                elif record[self.NAME_TO_INTERNAL['sAMAccountType']] == self.SAM_MACHINE_ACCOUNT:
+                    accountType = "(accountType=Machine)"
+                elif record[self.NAME_TO_INTERNAL['sAMAccountType']] == self.SAM_TRUST_ACCOUNT:
+                     accountType = "(accountType=Trust)"
+                else: accountType = "(accountType=N/A)"
+
+            answer = "%s:%s:%s:%s:::%s%s%s" % (userName, ident, hexlify(LMHash).decode('utf-8'), 
+                                                hexlify(NTHash).decode('utf-8'), pwdLastSet, userAccountStatus, accountType)
             self.__perSecretCallback(NTDSHashes.SECRET_TYPE.NTDS, answer)
 
             if outputFile is not None:
@@ -2357,8 +2371,8 @@ class NTDSHashes:
                     else:
                         lmhash = hexlify(LMHash)
 
-                    answer = "%s_history%d:%s:%s:%s:::" % (userName, i, rid, lmhash.decode('utf-8'),
-                                                           hexlify(NTHash).decode('utf-8'))
+                    answer = "%s_history%d:%s:%s:%s:::%s%s" % (userName, i, ident, lmhash.decode('utf-8'),
+                                                           hexlify(NTHash).decode('utf-8'), userAccountStatus, accountType)
                     if outputFile is not None:
                         self.__writeOutput(outputFile, answer + '\n')
                     self.__perSecretCallback(NTDSHashes.SECRET_TYPE.NTDS, answer)
@@ -2369,8 +2383,21 @@ class NTDSHashes:
             if self.__history:
                 LMHistory = []
                 NTHistory = []
-
-            rid = unpack('<L', record['pmsgOut'][replyVersion]['pObjects']['Entinf']['pName']['Sid'][-4:])[0]
+        
+            rid   = unpack('<L', record['pmsgOut'][replyVersion]['pObjects']['Entinf']['pName']['Sid'][-4:])[0]
+            ident = rid 
+            if self.__printSID:
+                objectSID = "S-1-5"
+                i = 8
+                while i <= 24:
+                    objectSID += '-' + str(unpack('<L', record['pmsgOut'][replyVersion]['pObjects']['Entinf']['pName']['Sid'][i:i+4])[0])
+                    i += 4
+                ident = objectSID
+            
+            
+            userAccountStatus = ''
+            accountType       = ''
+            pwdLastSet        = ''
 
             for attr in record['pmsgOut'][replyVersion]['pObjects']['Entinf']['AttrBlock']['pAttr']:
                 try:
@@ -2415,27 +2442,32 @@ class NTDSHashes:
                     else:
                         LOG.error('Cannot get sAMAccountName for %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
                         userName = 'unknown'
-                elif attId == LOOKUP_TABLE['objectSid']:
-                    if attr['AttrVal']['valCount'] > 0:
-                        objectSid = b''.join(attr['AttrVal']['pAVal'][0]['pVal'])
-                    else:
-                        LOG.error('Cannot get objectSid for %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
-                        objectSid = rid
-                elif attId == LOOKUP_TABLE['pwdLastSet']:
+                elif self.__pwdLastSet and attId == LOOKUP_TABLE['pwdLastSet']:
                     if attr['AttrVal']['valCount'] > 0:
                         try:
-                            pwdLastSet = self.__fileTimeToDateTime(unpack('<Q', b''.join(attr['AttrVal']['pAVal'][0]['pVal']))[0])
+                            pwdLastSet = "(pwdLastSet=%s)" % self.__fileTimeToDateTime(unpack('<Q', b''.join(attr['AttrVal']['pAVal'][0]['pVal']))[0])
                         except:
                             LOG.error('Cannot get pwdLastSet for %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
-                            pwdLastSet = 'N/A'
+                            pwdLastSet = "(pwdLastSet=N/A)"
+                elif self.__printAccountType and attId == LOOKUP_TABLE['sAMAccountType']:
+                    if attr['AttrVal']['valCount'] > 0: 
+                        if int.from_bytes(b''.join(attr['AttrVal']['pAVal'][0]['pVal']), byteorder='little') == self.SAM_NORMAL_USER_ACCOUNT:
+                            accountType = "(accountType=User)"
+                        elif int.from_bytes(b''.join(attr['AttrVal']['pAVal'][0]['pVal']), byteorder='little') == self.SAM_MACHINE_ACCOUNT:
+                            accountType = "(accountType=Machine)"
+                        elif int.from_bytes(b''.join(attr['AttrVal']['pAVal'][0]['pVal']), byteorder='little') == self.SAM_TRUST_ACCOUNT:
+                            accountType = "(accountType=Trust)"
+                        else: accountType = "(accountType=N/A)"
+                    else: accountType = "(accountType=N/A)"
+
                 elif self.__printUserStatus and attId == LOOKUP_TABLE['userAccountControl']:
                     if attr['AttrVal']['valCount'] > 0:
                         if (unpack('<L', b''.join(attr['AttrVal']['pAVal'][0]['pVal']))[0]) & samr.UF_ACCOUNTDISABLE:
-                            userAccountStatus = 'Disabled'
+                            userAccountStatus = "(status=Disabled)"
                         else:
-                            userAccountStatus = 'Enabled'
+                            userAccountStatus = "(status=Enabled)"
                     else:
-                        userAccountStatus = 'N/A'
+                        userAccountStatus = "(status=N/A)"
 
                 if self.__history:
                     if attId == LOOKUP_TABLE['lmPwdHistory']:
@@ -2460,11 +2492,8 @@ class NTDSHashes:
             if domain is not None:
                 userName = '%s\\%s' % (domain, userName)
 
-            answer = "%s:%s:%s:%s:::" % (userName, rid, hexlify(LMHash).decode('utf-8'), hexlify(NTHash).decode('utf-8'))
-            if self.__pwdLastSet is True:
-                answer = "%s (pwdLastSet=%s)" % (answer, pwdLastSet)
-            if self.__printUserStatus is True:
-                answer = "%s (status=%s)" % (answer, userAccountStatus)
+            answer = "%s:%s:%s:%s:::%s%s%s" % (userName, ident, hexlify(LMHash).decode('utf-8'),
+                                          hexlify(NTHash).decode('utf-8'), pwdLastSet, userAccountStatus, accountType)
             self.__perSecretCallback(NTDSHashes.SECRET_TYPE.NTDS, answer)
 
             if outputFile is not None:
@@ -2478,8 +2507,8 @@ class NTDSHashes:
                     else:
                         lmhash = hexlify(LMHashHistory)
 
-                    answer = "%s_history%d:%s:%s:%s:::" % (userName, i, rid, lmhash.decode('utf-8'),
-                                                           hexlify(NTHashHistory).decode('utf-8'))
+                    answer = "%s_history%d:%s:%s:%s:::%s%s" % (userName, i, ident, lmhash.decode('utf-8'),
+                                                           hexlify(NTHashHistory).decode('utf-8'), userAccountStatus, accountType)
                     self.__perSecretCallback(NTDSHashes.SECRET_TYPE.NTDS, answer)
                     if outputFile is not None:
                         self.__writeOutput(outputFile, answer + '\n')
@@ -2696,7 +2725,6 @@ class NTDSHashes:
 
                         for user in resp['Buffer']['Buffer']:
                             userName = user['Name']
-
                             userSid = "%s-%i" % (self.__remoteOps.getDomainSid(), user['RelativeId'])
                             if resumeSid is not None:
                                 # Means we're looking for a SID before start processing back again
@@ -2721,7 +2749,7 @@ class NTDSHashes:
                                 crackedName = self.__remoteOps.DRSCrackNames(drsuapi.DS_NAME_FORMAT.DS_SID_OR_SID_HISTORY_NAME,
                                                                              drsuapi.DS_NAME_FORMAT.DS_UNIQUE_ID_NAME,
                                                                              name=userSid)
-
+                                
                                 if crackedName['pmsgOut']['V1']['pResult']['cItems'] == 1:
                                     if crackedName['pmsgOut']['V1']['pResult']['rItems'][0]['status'] != 0:
                                         LOG.error("%s: %s" % system_errors.ERROR_MESSAGES[
