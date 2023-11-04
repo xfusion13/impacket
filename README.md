@@ -47,7 +47,7 @@ SEVENKINGDOMS$_history2:S-1-5-21-1614210445-3434418105-4037753173-1105:aad3b435b
 SEVENKINGDOMS$_history3:S-1-5-21-1614210445-3434418105-4037753173-1105:aad3b435b51404eeaad3b435b51404ee:1de8088e4e3ee094d12d3a6c32c024f9:::(status=Enabled)(accountType=Trust)
 ```
 
-**Unique user's NT-hashes include history**
+**Unique user's NT-hashes include history:**
 ```bash
 grep 'accountType=User' essos.local.ntds | grep 'status=Enabled' | cut -d ":" -f 4 | sort -us | tee ueh-uniq-nt.txt
 ```
