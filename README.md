@@ -5,7 +5,7 @@ New flags (for LOCAL, VSS and DRSUAPI methods get credentials from ntds.dit):
 - `-sid` - Replace RID to SID
 - `-account-type` - Display account type (User, Machine, Trust)
 
-```
+```bash
 secretsdump.py $creds -history -user-status -pwd-last-set -just-dc-ntlm -sid -account-type -outputfile essos.local
 ```
 ```
@@ -48,6 +48,6 @@ SEVENKINGDOMS$_history3:S-1-5-21-1614210445-3434418105-4037753173-1105:aad3b435b
 ```
 
 **Unique user's NT-hashes include history**
-```
+```bash
 grep 'accountType=User' essos.local.ntds | grep 'status=Enabled' | cut -d ":" -f 4 | sort -us | tee ueh-uniq-nt.txt
 ```
