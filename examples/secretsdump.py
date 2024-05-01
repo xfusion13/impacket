@@ -96,7 +96,6 @@ class DumpSecrets:
         self.__securityHive = options.security
         self.__samHive = options.sam
         self.__ntdsFile = options.ntds
-        self.__history = options.history
         self.__noLMHash = True
         self.__isRemote = True
         self.__outputFileName = options.outputfile
@@ -105,10 +104,28 @@ class DumpSecrets:
         self.__justDCNTLM = options.just_dc_ntlm
         self.__justUser = options.just_dc_user
         self.__ldapFilter = options.ldapfilter
-        self.__pwdLastSet = options.pwd_last_set
-        self.__printUserStatus = options.user_status
-        self.__printSID = options.sid
-        self.__printAccountType = options.account_type
+        
+        if options.full:
+            self.__pwdLastSet       = True
+            self.__printUserStatus  = True
+            self.__printSID         = True
+            self.__printAccountType = True
+            self.__printDescription = True
+            self.__printDisplayName = True
+            self.__printServiceFlag = True
+            self.__printAdminCount  = True
+            self.__history          = True
+        else:
+            self.__pwdLastSet       = options.pwd_last_set
+            self.__printUserStatus  = options.user_status
+            self.__printSID         = options.sid
+            self.__printAccountType = options.account_type
+            self.__printDescription = options.desc
+            self.__printDisplayName = options.display_name
+            self.__printServiceFlag = options.service
+            self.__printAdminCount  = options.admin_count
+            self.__history          = options.history
+
         self.__resumeFileName = options.resumefile
         self.__canProcessSAMLSA = True
         self.__kdcHost = options.dc_ip
@@ -276,7 +293,10 @@ class DumpSecrets:
                                                useVSSMethod=self.__useVSSMethod, justNTLM=self.__justDCNTLM,
                                                pwdLastSet=self.__pwdLastSet, resumeSession=self.__resumeFileName,
                                                outputFileName=self.__outputFileName, justUser=self.__justUser,
-                                               ldapFilter=self.__ldapFilter, printUserStatus=self.__printUserStatus, printSID=self.__printSID, printAccountType=self.__printAccountType)
+                                               ldapFilter=self.__ldapFilter, printUserStatus=self.__printUserStatus, printSID=self.__printSID, 
+                                               printAccountType=self.__printAccountType, printDescription=self.__printDescription,
+                                               printDisplayName=self.__printDisplayName,printServiceFlag=self.__printServiceFlag,
+                                               printAdminCount=self.__printAdminCount)
                 try:
                     self.__NTDSHashes.dump()
                 except Exception as e:
@@ -391,6 +411,14 @@ if __name__ == '__main__':
     group.add_argument('-history', action='store_true', help='Dump password history, and LSA secrets OldVal')
     group.add_argument('-sid', action='store_true', help='Replace RID to SID')
     group.add_argument('-account-type', action='store_true', help='Display account type (User, Machine, Trust)')
+    
+    group.add_argument('-desc', action='store_true', help='Display account description field')
+    group.add_argument('-display-name', action='store_true', help='Display account displayName field')
+    group.add_argument('-service', action='store_true', help='Display service account')
+    group.add_argument('-admin-count', action='store_true', help='Display account adminCount field')
+    group.add_argument('-full', action='store_true', help='-pwd-last-set, -user-status, -history, -sid, -account-type, -desc, -display-name, -service, -admin-count')
+
+
 
     group = parser.add_argument_group('authentication')
     group.add_argument('-hashes', action="store", metavar = "LMHASH:NTHASH", help='NTLM hashes, format is LMHASH:NTHASH')
