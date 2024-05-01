@@ -33,7 +33,6 @@ LOCAL:
 ```bash
 secretsdump.py LOCAL -ntds 'ntds.dit' -system 'SYSTEM' -just-dc-ntlm -full -outputfile essos.local
 ```
-\*Вывод примера находится в файле `essos.local.ntds`
 ![1](./1.png)
 
 
