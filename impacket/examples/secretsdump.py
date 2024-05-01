@@ -69,7 +69,7 @@ from impacket import winregistry, ntlm
 from impacket.ldap.ldap import SimplePagedResultsControl, LDAPSearchError
 from impacket.ldap.ldapasn1 import SearchResultEntry
 from impacket.dcerpc.v5 import transport, rrp, scmr, wkst, samr, epm, drsuapi
-from impacket.dcerpc.v5.dtypes import NULL, SID
+from impacket.dcerpc.v5.dtypes import NULL, SID, PRPC_SID,RPC_SID
 from impacket.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_PKT_PRIVACY, DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE
 from impacket.dcerpc.v5.dcom import wmi
 from impacket.dcerpc.v5.dcom.oaut import IID_IDispatch, IDispatch, DISPPARAMS, DISPATCH_PROPERTYGET, \
@@ -277,6 +277,17 @@ class SAMR_RPC_SID(Structure):
        for i in range(self['SubAuthorityCount']):
            ans += '-%d' % ( unpack('>L',self['SubAuthority'][i*4:i*4+4])[0])
        return ans
+
+class NORM_SID(SID):
+    def formatCanonical(self):
+        ans = 'S-%d-%d' % (self['Revision'], ord(self['IdentifierAuthority']['Value'][5:6]))
+        k = self['SubAuthorityCount']-1
+        for i in range(self['SubAuthorityCount']-1):
+            ans += '-%d' % (unpack('<L', self['SubAuthority'][i * 4:i * 4 + 4])[0])
+        ans += '-%d' % ( unpack('>L',self['SubAuthority'][k*4:k*4+4])[0])
+        return ans
+
+
 
 class LSA_SECRET_BLOB(Structure):
     structure = (
@@ -1878,7 +1889,7 @@ class NTDSHashes:
     NAME_TO_INTERNAL = {
         'uSNCreated':b'ATTq131091',
         'uSNChanged':b'ATTq131192',
-        'name':b'ATTm3',
+        'commonName':b'ATTm3',
         'objectGUID':b'ATTk589826',
         'objectSid':b'ATTr589970',
         'userAccountControl':b'ATTj589832',
@@ -1896,6 +1907,14 @@ class NTDSHashes:
         'pekList':b'ATTk590689',
         'supplementalCredentials':b'ATTk589949',
         'pwdLastSet':b'ATTq589920',
+        'description':b'ATTm13',
+        'servicePrincipalName':b'ATTm590595',
+        'adminCount':b'ATTj589974',
+        'displayName':b'ATTm131085',
+        'givenName':b'ATTm42',
+        'surname':b'ATTm4',
+        'userPassword':b'ATTm35',
+        
     }
 
     NAME_TO_ATTRTYP = {
@@ -1922,6 +1941,14 @@ class NTDSHashes:
         'objectSid': '1.2.840.113556.1.4.146',
         'pwdLastSet': '1.2.840.113556.1.4.96',
         'userAccountControl':'1.2.840.113556.1.4.8',
+        'displayName':'1.2.840.113556.1.2.13',
+        'comment':'1.2.840.113556.1.4.156',
+        'description':'2.5.4.13',
+        # 'commonName':'2.5.4.3',
+        'givenName':'2.5.4.42',
+        'surname':'2.5.4.4',
+        'servicePrincipalName':'1.2.840.113556.1.4.771',
+        'adminCount':'1.2.840.113556.1.4.150',
     }
 
     KERBEROS_TYPE = {
@@ -1992,6 +2019,7 @@ class NTDSHashes:
     def __init__(self, ntdsFile, bootKey, isRemote=False, history=False, noLMHash=True, remoteOps=None,
                  useVSSMethod=False, justNTLM=False, pwdLastSet=False, resumeSession=None, outputFileName=None,
                  justUser=None, ldapFilter=None, printUserStatus=False, printSID=False, printAccountType=False,
+                 printDescription=False, printDisplayName=False, printServiceFlag=False, printAdminCount=False,
                  perSecretCallback = lambda secretType, secret : _print_helper(secret),
                  resumeSessionMgr=ResumeSessionMgrInFile):
         self.__bootKey = bootKey
@@ -2004,6 +2032,11 @@ class NTDSHashes:
         self.__printUserStatus = printUserStatus
         self.__printSID = printSID
         self.__printAccountType = printAccountType
+        self.__printDescription = printDescription
+        self.__printDisplayName = printDisplayName
+        self.__printServiceFlag = printServiceFlag
+        self.__printAdminCount  = printAdminCount
+
         if self.__NTDS is not None:
             self.__ESEDB = ESENT_DB(ntdsFile, isRemote = isRemote)
             self.__cursor = self.__ESEDB.openTable('datatable')
@@ -2024,7 +2057,7 @@ class NTDSHashes:
         self.__filter_tables_usersecret = {
             self.NAME_TO_INTERNAL['objectSid'] : 1,
             self.NAME_TO_INTERNAL['dBCSPwd'] : 1,
-            self.NAME_TO_INTERNAL['name'] : 1,
+            self.NAME_TO_INTERNAL['commonName'] : 1,
             self.NAME_TO_INTERNAL['sAMAccountType'] : 1,
             self.NAME_TO_INTERNAL['unicodePwd'] : 1,
             self.NAME_TO_INTERNAL['sAMAccountName'] : 1,
@@ -2035,7 +2068,12 @@ class NTDSHashes:
             self.NAME_TO_INTERNAL['userAccountControl'] : 1,
             self.NAME_TO_INTERNAL['supplementalCredentials'] : 1,
             self.NAME_TO_INTERNAL['pekList'] : 1,
-
+            self.NAME_TO_INTERNAL['description'] : 1,
+            self.NAME_TO_INTERNAL['servicePrincipalName'] : 1,
+            self.NAME_TO_INTERNAL['adminCount'] : 1,
+            self.NAME_TO_INTERNAL['surname'] : 1,
+            self.NAME_TO_INTERNAL['givenName'] : 1,
+            self.NAME_TO_INTERNAL['displayName'] : 1,
         }
 
     def getResumeSessionFile(self):
@@ -2258,13 +2296,13 @@ class NTDSHashes:
     def __decryptHash(self, record, prefixTable=None, outputFile=None):
         LOG.debug('Entering NTDSHashes.__decryptHash')
         if self.__useVSSMethod is True:
-            LOG.debug('Decrypting hash for user: %s' % record[self.NAME_TO_INTERNAL['name']])
-
-            sid = SAMR_RPC_SID(unhexlify(record[self.NAME_TO_INTERNAL['objectSid']])).formatCanonical()
+            LOG.debug('Decrypting hash for user: %s' % record[self.NAME_TO_INTERNAL['commonName']])
+            # SAMR_RPC_SID
+            sid = NORM_SID(unhexlify(record[self.NAME_TO_INTERNAL['objectSid']])).formatCanonical()
             rid = sid.split('-')[-1]
             ident = sid if self.__printSID == True else rid
             
-
+            
             if record[self.NAME_TO_INTERNAL['dBCSPwd']] is not None:
                 encryptedLMHash = self.CRYPTED_HASH(unhexlify(record[self.NAME_TO_INTERNAL['dBCSPwd']]))
                 if encryptedLMHash['Header'][:4] == b'\x13\x00\x00\x00':
@@ -2329,8 +2367,34 @@ class NTDSHashes:
                      accountType = "(accountType=Trust)"
                 else: accountType = "(accountType=N/A)"
 
-            answer = "%s:%s:%s:%s:::%s%s%s" % (userName, ident, hexlify(LMHash).decode('utf-8'), 
-                                                hexlify(NTHash).decode('utf-8'), pwdLastSet, userAccountStatus, accountType)
+
+            givenName = ''
+            if self.__printDisplayName and record[self.NAME_TO_INTERNAL['givenName']] is not None:
+                givenName = "(givenName=%s)" % (record[self.NAME_TO_INTERNAL['givenName']])
+            
+            surname = ''
+            if self.__printDisplayName and record[self.NAME_TO_INTERNAL['surname']] is not None:
+                surname = "(surname=%s)" % (record[self.NAME_TO_INTERNAL['surname']])
+
+            description = ''
+            if self.__printDescription and record[self.NAME_TO_INTERNAL['description']] is not None:
+                description = "(description=%s)" % (record[self.NAME_TO_INTERNAL['description']])
+
+            displayName = ''
+            if self.__printDisplayName and record[self.NAME_TO_INTERNAL['displayName']] is not None:
+                displayName = "(displayName=%s)" % (record[self.NAME_TO_INTERNAL['displayName']])
+            
+            spn = ''
+            if self.__printServiceFlag and record[self.NAME_TO_INTERNAL['servicePrincipalName']] is not None:
+                spn = "(spn=True)"
+
+            adminCount = ''
+            if self.__printAdminCount and record[self.NAME_TO_INTERNAL['adminCount']]:
+                adminCount = "(adminCount=True)"
+            
+            answer = "%s:%s:%s:%s:::%s%s%s%s%s%s%s%s%s" % (userName, ident, hexlify(LMHash).decode('utf-8'),
+                                          hexlify(NTHash).decode('utf-8'), pwdLastSet, accountType, userAccountStatus,
+                                          displayName, givenName, surname, description, spn, adminCount)
             self.__perSecretCallback(NTDSHashes.SECRET_TYPE.NTDS, answer)
 
             if outputFile is not None:
@@ -2398,7 +2462,13 @@ class NTDSHashes:
             userAccountStatus = ''
             accountType       = ''
             pwdLastSet        = ''
-
+            description       = ''
+            givenName         = ''
+            surname           = ''
+            displayName       = ''
+            spn               = ''
+            adminCount        = ''
+            
             for attr in record['pmsgOut'][replyVersion]['pObjects']['Entinf']['AttrBlock']['pAttr']:
                 try:
                     attId = drsuapi.OidFromAttid(prefixTable, attr['attrTyp'])
@@ -2409,7 +2479,9 @@ class NTDSHashes:
                     # Fallbacking to fixed table and hope for the best
                     attId = attr['attrTyp']
                     LOOKUP_TABLE = self.NAME_TO_ATTRTYP
-
+                
+                # print(attId)
+                
                 if attId == LOOKUP_TABLE['dBCSPwd']:
                     if attr['AttrVal']['valCount'] > 0:
                         encrypteddBCSPwd = b''.join(attr['AttrVal']['pAVal'][0]['pVal'])
@@ -2442,6 +2514,33 @@ class NTDSHashes:
                     else:
                         LOG.error('Cannot get sAMAccountName for %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
                         userName = 'unknown'
+
+
+                # givenName - ATTm42 - 2.5.4.42
+                elif attId == LOOKUP_TABLE['givenName'] and attr['AttrVal']['valCount'] > 0 and self.__printDisplayName:
+                    givenName   = "(givenName=%s)" % (b''.join(attr['AttrVal']['pAVal'][0]['pVal']).decode('utf-16le'))
+
+                # surname - ATTm4 - 2.5.4.4
+                elif attId == LOOKUP_TABLE['surname'] and attr['AttrVal']['valCount'] > 0 and self.__printDisplayName:
+                    surname = "(surname=%s)" % (b''.join(attr['AttrVal']['pAVal'][0]['pVal']).decode('utf-16le'))
+                
+                # displayName - ATTm131085 - 1.2.840.113556.1.2.13
+                elif attId == LOOKUP_TABLE['displayName'] and attr['AttrVal']['valCount'] > 0 and self.__printDisplayName:
+                    displayName = "(displayName=%s)" % (b''.join(attr['AttrVal']['pAVal'][0]['pVal']).decode('utf-16le'))
+
+                # description - ATTm13 - 2.5.4.13
+                elif attId == LOOKUP_TABLE['description'] and attr['AttrVal']['valCount'] > 0 and self.__printDescription:
+                    description = "(description=%s)" % (b''.join(attr['AttrVal']['pAVal'][0]['pVal']).decode('utf-16le'))
+
+                # servicePrincipalName - ATTm590595 - 1.2.840.113556.1.4.771
+                elif attId == LOOKUP_TABLE['servicePrincipalName'] and attr['AttrVal']['valCount'] > 0 and self.__printAdminCount:
+                    spn = "(spn=True)"
+
+                # adminCount - ATTj589974 - 1.2.840.113556.1.4.150
+                elif attId == LOOKUP_TABLE['adminCount'] and attr['AttrVal']['valCount'] > 0 and self.__printServiceFlag:
+                    adminCount = "(adminCount=True)"
+                
+                
                 elif self.__pwdLastSet and attId == LOOKUP_TABLE['pwdLastSet']:
                     if attr['AttrVal']['valCount'] > 0:
                         try:
@@ -2459,7 +2558,6 @@ class NTDSHashes:
                             accountType = "(accountType=Trust)"
                         else: accountType = "(accountType=N/A)"
                     else: accountType = "(accountType=N/A)"
-
                 elif self.__printUserStatus and attId == LOOKUP_TABLE['userAccountControl']:
                     if attr['AttrVal']['valCount'] > 0:
                         if (unpack('<L', b''.join(attr['AttrVal']['pAVal'][0]['pVal']))[0]) & samr.UF_ACCOUNTDISABLE:
@@ -2468,6 +2566,7 @@ class NTDSHashes:
                             userAccountStatus = "(status=Enabled)"
                     else:
                         userAccountStatus = "(status=N/A)"
+
 
                 if self.__history:
                     if attId == LOOKUP_TABLE['lmPwdHistory']:
@@ -2492,8 +2591,10 @@ class NTDSHashes:
             if domain is not None:
                 userName = '%s\\%s' % (domain, userName)
 
-            answer = "%s:%s:%s:%s:::%s%s%s" % (userName, ident, hexlify(LMHash).decode('utf-8'),
-                                          hexlify(NTHash).decode('utf-8'), pwdLastSet, userAccountStatus, accountType)
+            answer = "%s:%s:%s:%s:::%s%s%s%s%s%s%s%s%s" % (userName, ident, hexlify(LMHash).decode('utf-8'),
+                                          hexlify(NTHash).decode('utf-8'), pwdLastSet, accountType, userAccountStatus,
+                                          displayName, givenName, surname, description, spn, adminCount)
+
             self.__perSecretCallback(NTDSHashes.SECRET_TYPE.NTDS, answer)
 
             if outputFile is not None:
@@ -2581,7 +2682,7 @@ class NTDSHashes:
                             LOG.debug('Exception', exc_info=True)
                             try:
                                 LOG.error(
-                                    "Error while processing row for user %s" % record[self.NAME_TO_INTERNAL['name']])
+                                    "Error while processing row for user %s" % record[self.NAME_TO_INTERNAL['commonName']])
                                 LOG.error(str(e))
                                 pass
                             except:
@@ -2608,7 +2709,7 @@ class NTDSHashes:
                             LOG.debug('Exception', exc_info=True)
                             try:
                                 LOG.error(
-                                    "Error while processing row for user %s" % record[self.NAME_TO_INTERNAL['name']])
+                                    "Error while processing row for user %s" % record[self.NAME_TO_INTERNAL['commonName']])
                                 LOG.error(str(e))
                                 pass
                             except:
@@ -2700,8 +2801,7 @@ class NTDSHashes:
                                 userRecord = self.__remoteOps.DRSGetNCChangesGuid(crackedName['pmsgOut']['V1']['pResult']['rItems'][0]['pName'][:-1])
                             else:
                                 LOG.warning('DRSCrackNames returned %d items for user %s, skipping' % (
-                                            crackedName['pmsgOut']['V1']['pResult']['cItems'], user)
-)
+                                            crackedName['pmsgOut']['V1']['pResult']['cItems'], user))
                         #userRecord.dump()
                         replyVersion = 'V%d' % userRecord['pdwOutVersion']
                         if userRecord['pmsgOut'][replyVersion]['cNumObjects'] == 0:
