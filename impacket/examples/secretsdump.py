@@ -2395,6 +2395,9 @@ class NTDSHashes:
             answer = "%s:%s:%s:%s:::%s%s%s%s%s%s%s%s%s" % (userName, ident, hexlify(LMHash).decode('utf-8'),
                                           hexlify(NTHash).decode('utf-8'), pwdLastSet, accountType, userAccountStatus,
                                           displayName, givenName, surname, description, spn, adminCount)
+            
+            answer = answer.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+
             self.__perSecretCallback(NTDSHashes.SECRET_TYPE.NTDS, answer)
 
             if outputFile is not None:
@@ -2594,7 +2597,8 @@ class NTDSHashes:
             answer = "%s:%s:%s:%s:::%s%s%s%s%s%s%s%s%s" % (userName, ident, hexlify(LMHash).decode('utf-8'),
                                           hexlify(NTHash).decode('utf-8'), pwdLastSet, accountType, userAccountStatus,
                                           displayName, givenName, surname, description, spn, adminCount)
-
+            answer = answer.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+            
             self.__perSecretCallback(NTDSHashes.SECRET_TYPE.NTDS, answer)
 
             if outputFile is not None:

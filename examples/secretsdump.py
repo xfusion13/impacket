@@ -1,4 +1,4 @@
-#!C:\Users\xifiro\venv\main-env\Scripts\python.exe
+#!/usr/bin/env python3
 # Impacket - Collection of Python classes for working with network protocols.
 #
 # Copyright (C) 2023 Fortra. All rights reserved.
